@@ -1,0 +1,58 @@
+# oauth2-proxy in auth_request mode behind the edge (same flags as compose.yaml). Local only: dummy client secret and cookie secret.
+apiVersion: v1
+kind: Service
+metadata:
+  name: another-agentic-oauth2-proxy
+spec:
+  selector:
+    app: oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: another-agentic-oauth2-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app: oauth2-proxy
+    spec:
+      containers:
+        - name: oauth2-proxy
+          image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5-alpine@sha256:8e4bec4f9fe4de10de63070209204075e4407503170aa19893d6e8d99f083d1b
+          args:
+            - --http-address=0.0.0.0:4180
+            - --upstream=static://202
+            - --provider=oidc
+            - --skip-oidc-discovery=true
+            - --oidc-issuer-url=http://mock-oidc:8080
+            - --oidc-jwks-url=http://mock-oidc:8080/jwks
+            - --redeem-url=http://mock-oidc:8080/token
+            - --login-url=http://127.0.0.1:8099/authorize
+            - --client-id=dev-chat
+            - --client-secret=dev-client-secret
+            - --code-challenge-method=S256
+            - --redirect-url=http://127.0.0.1:8080/oauth2/callback
+            - --email-domain=*
+            - --cookie-secret=dev-cookie-secret-0123456789abcd
+            - --cookie-secure=false
+            - --set-authorization-header=true
+            - --skip-jwt-bearer-tokens=true
+            - --extra-jwt-issuers=http://mock-oidc:8080=dev-chat
+            - --skip-provider-button=true
+            - --silence-ping-logging=true
+          ports:
+            - containerPort: 4180
+          readinessProbe:
+            httpGet: { path: /ping, port: 4180 }
+            periodSeconds: 3
+          resources:
+            limits: { memory: 128Mi }
+            requests: { cpu: 10m, memory: 32Mi }

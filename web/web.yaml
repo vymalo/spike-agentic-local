@@ -1,0 +1,54 @@
+# The chat UI: the web's static export served by Caddy (image from the prod chart, built with NEXT_PUBLIC_SIGN_IN_PATH=/oauth2/start).
+apiVersion: v1
+kind: Service
+metadata:
+  name: another-agentic-web
+spec:
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 3000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: another-agentic-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: web
+          image: ghcr.io/vymalo/another-agentic-system/web:sha-d774cd9
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet: { path: /, port: 3000 }
+            periodSeconds: 5
+          resources:
+            limits: { memory: 256Mi }
+            requests: { cpu: 20m, memory: 64Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: next-cache, mountPath: /app/.next/cache }
+      volumes:
+        - { name: tmp, emptyDir: { sizeLimit: 64Mi } }
+        - { name: next-cache, emptyDir: { sizeLimit: 256Mi } }

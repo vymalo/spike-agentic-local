@@ -1,0 +1,107 @@
+# Copied from another-agentic-system/dev/Caddyfile (comments removed), upstream names changed to this namespace's Services.
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	handle /oauth2/* {
+		reverse_proxy another-agentic-oauth2-proxy:4180
+	}
+	@publicApi {
+		method GET HEAD
+		path /api/public/shared/*
+	}
+	handle @publicApi {
+		reverse_proxy another-agentic-orchestrator:8080 {
+			header_up -Authorization
+			header_up -X-Auth-Request-Email
+			flush_interval -1
+		}
+	}
+	@publicAgui {
+		method GET HEAD
+		path /agui/public/shared/*
+	}
+	handle @publicAgui {
+		reverse_proxy another-agentic-orchestrator:8080 {
+			header_up -Authorization
+			header_up -X-Auth-Request-Email
+			flush_interval -1
+			request_buffers 8MiB
+		}
+	}
+	@publicWeb {
+		method GET HEAD
+		path /s/* /_next/static/* /favicon.ico /icon.svg /apple-icon.png /manifest.webmanifest /brand/*
+	}
+	handle @publicWeb {
+		reverse_proxy another-agentic-web:3000 {
+			header_up -Authorization
+			header_up -X-Auth-Request-Email
+		}
+	}
+	@oauthCallback {
+		method GET
+		path /api/user-tool-servers/oauth/callback
+	}
+	handle @oauthCallback {
+		reverse_proxy another-agentic-orchestrator:8080 {
+			header_up -Authorization
+			header_up -X-Auth-Request-Email
+		}
+	}
+	import /etc/caddy/browser-auth/*.caddy
+	handle /api/* {
+		forward_auth another-agentic-oauth2-proxy:4180 {
+			uri /oauth2/auth
+			copy_headers Authorization
+		}
+		reverse_proxy another-agentic-orchestrator:8080 {
+			header_up -X-Auth-Request-Email
+			flush_interval -1
+		}
+	}
+	handle /agui/* {
+		forward_auth another-agentic-oauth2-proxy:4180 {
+			uri /oauth2/auth
+			copy_headers Authorization
+		}
+		reverse_proxy another-agentic-orchestrator:8080 {
+			header_up -X-Auth-Request-Email
+			flush_interval -1
+			request_buffers 8MiB
+		}
+	}
+	@mcp path /mcp /mcp/*
+	handle @mcp {
+		reverse_proxy another-agentic-orchestrator:8080 {
+			header_up -X-Auth-Request-Email
+			flush_interval -1
+			request_buffers 1MiB
+		}
+	}
+	handle /webhooks/* {
+		reverse_proxy another-agentic-orchestrator:8080 {
+			header_up -X-Auth-Request-Email
+			request_buffers 5MiB
+		}
+	}
+	handle /healthz {
+		reverse_proxy another-agentic-orchestrator:8080
+	}
+	handle /readyz {
+		reverse_proxy another-agentic-orchestrator:8080
+	}
+	handle {
+		forward_auth another-agentic-oauth2-proxy:4180 {
+			uri /oauth2/auth
+			copy_headers Authorization
+			@unauthenticated status 401
+			handle_response @unauthenticated {
+				redir * /oauth2/start?rd={http.request.uri.path}
+			}
+		}
+		reverse_proxy another-agentic-web:3000
+	}
+}

@@ -1,0 +1,255 @@
+# Copied from the another-agentic-system chart render (deploy/chart, commit ce39839), trimmed for a local minikube. Not for prod.
+# Source: another-agentic-system/templates/orchestrator-configmap.yaml
+# The orchestrator's configuration (ADR 0034, docs/api/config.md) and its agents file. Nothing here is a
+# secret: every secret is a `{ env }` or `{ file }` reference to what an ExternalSecret mounts.
+# `server.environment`, `auth.mode` and `defaultRole` are written here and are not values: this chart deploys
+# no development stack, and a person with no role is refused (ADR 0033).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: another-agentic-orchestrator
+  labels:
+    app.kubernetes.io/name: another-agentic-system
+    app.kubernetes.io/instance: another-agentic-system
+    app.kubernetes.io/component: orchestrator
+data:
+  config.yaml: |
+    version: 1
+    server:
+      environment: development
+      role: all
+      surfaces:
+        - agui
+        - thread-tools
+      publicUrl: "http://localhost:8080"
+    log:
+      format: json
+    database:
+      url: { file: /run/secrets/db/uri }
+    agents:
+      file: agents.yaml
+    models:
+      endpoints:
+        default:
+          baseUrl: "https://api.ai.camer.digital/v1"
+          apiKey: { file: /run/secrets/orchestrator/model-api-key }
+          timeoutSecs: 20
+    tasks:
+      title: { endpoint: default, model: "deepseek-v4.1-flash" }
+      description: { endpoint: default, model: "deepseek-v4.1-flash" }
+    ui:
+      showDescriptions: true
+    artifacts:
+      store: fs
+      fs: { root: /var/lib/orchestrator/artifacts }
+    threadTools:
+      url: "http://another-agentic-orchestrator.another-dev.svc:8080"
+      secret: { file: /run/secrets/orchestrator/thread-tools-secret }
+      allowedHosts:
+        - "another-agentic-orchestrator.another-dev.svc:8080"
+        - "another-agentic-orchestrator.another-dev.svc.cluster.local:8080"
+    auth:
+      mode: jwt
+      jwt:
+        issuer: "https://auth.ai.camer.digital"
+        audiences:
+          - lightbridge-api-key
+        userClaim: "email"
+        rolesClaim: "lightbridge_caller_kind"
+      defaultRole: null
+      roles:
+        admin:
+          agents:
+          - '*'
+          permissions:
+          - agent.read
+          - agent.invoke
+          - thread.read
+          - thread.write
+          - thread.delete
+          - artifact.read
+          - admin
+          scope: own
+        api_key:
+          agents:
+          - '*'
+          permissions:
+          - agent.read
+          - agent.invoke
+          - thread.read
+          - thread.write
+          - thread.delete
+          - artifact.read
+          scope: own
+        user:
+          agents:
+          - '*'
+          permissions:
+          - agent.read
+          - agent.invoke
+          - thread.read
+          - thread.write
+          - thread.delete
+          - artifact.read
+          scope: own
+  agents.yaml: |
+    - cardUrl: http://another-agentic-chat.another-dev.svc:8080/.well-known/agent-card.json
+      id: chat
+      name: Chat
+      tokenEnv: CHAT_A2A_TOKEN
+
+---
+# Source: another-agentic-system/templates/orchestrator-service.yaml
+# ClusterIP only. The edge reaches it for /api and /agui; the agents reach it for the thread tools
+# (http://<this>.<namespace>.svc:8080, `threadTools.url`). The edge never routes /thread-tools.
+apiVersion: v1
+kind: Service
+metadata:
+  name: another-agentic-orchestrator
+  labels:
+    app.kubernetes.io/name: another-agentic-system
+    app.kubernetes.io/instance: another-agentic-system
+    app.kubernetes.io/component: orchestrator
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: another-agentic-system
+    app.kubernetes.io/instance: another-agentic-system
+    app.kubernetes.io/component: orchestrator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+
+---
+# Source: another-agentic-system/templates/orchestrator-deployment.yaml
+# The orchestrator: one process, role `all` (the control plane and the dispatcher together). One replica and
+# `Recreate`: the artifact store is a directory on a ReadWriteOnce volume (ADR 0032), and a second process would
+# need S3. Stateless otherwise: the log is in Postgres (ADR 0001).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: another-agentic-orchestrator
+  labels:
+    app.kubernetes.io/name: another-agentic-system
+    app.kubernetes.io/instance: another-agentic-system
+    app.kubernetes.io/component: orchestrator
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: another-agentic-system
+      app.kubernetes.io/instance: another-agentic-system
+      app.kubernetes.io/component: orchestrator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: another-agentic-system
+        app.kubernetes.io/instance: another-agentic-system
+        app.kubernetes.io/component: orchestrator
+      annotations:
+        # A new configuration or a new set of secrets restarts the pod: both are read once, at startup.
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: orchestrator
+          image: "ghcr.io/vymalo/another-agentic-system/orchestrator:sha-db42511"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ORCH_CONFIG_FILE
+              value: /etc/orchestrator/config.yaml
+            - name: RUST_LOG
+              value: "info"
+            - name: CHAT_A2A_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: another-agentic-orchestrator
+                  key: CHAT_A2A_TOKEN
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 3
+            failureThreshold: 40
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
+          # 503 until the issuer's keys have been fetched and the database answers.
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+          resources:
+            limits:
+              memory: 1Gi
+            requests:
+              cpu: 100m
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/orchestrator
+              readOnly: true
+            - name: secrets
+              mountPath: /run/secrets/orchestrator
+              readOnly: true
+            - name: db
+              mountPath: /run/secrets/db
+              readOnly: true
+            - name: artifacts
+              mountPath: /var/lib/orchestrator/artifacts
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: another-agentic-orchestrator
+        - name: secrets
+          secret:
+            secretName: another-agentic-orchestrator
+            # Group-readable by the runtime user (fsGroup): 0400 would leave the files to root.
+            defaultMode: 0440
+            items:
+              - key: thread-tools-secret
+                path: thread-tools-secret
+              - key: model-api-key
+                path: model-api-key
+        - name: db
+          secret:
+            secretName: another-agentic-db-app
+            defaultMode: 0440
+            items:
+              - key: uri
+                path: uri
+        - name: artifacts
+          emptyDir: {}
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+      

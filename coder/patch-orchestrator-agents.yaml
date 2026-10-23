@@ -1,0 +1,31 @@
+# Adds Adam (the coder) to the orchestrator's agents. The gate requires the coder's own checks to pass on the pushed commit.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: another-agentic-orchestrator
+data:
+  agents.yaml: |
+    - id: coder
+      name: Adam
+      cardUrl: http://coder.another-dev.svc:8080/.well-known/agent-card.json
+      tokenEnv: CODER_A2A_TOKEN
+      gate:
+        require:
+          - agent-checks
+    - id: chat
+      name: Chat
+      cardUrl: http://another-agentic-chat.another-dev.svc:8080/.well-known/agent-card.json
+      tokenEnv: CHAT_A2A_TOKEN
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: another-agentic-orchestrator
+spec:
+  template:
+    spec:
+      containers:
+        - name: orchestrator
+          env:
+            - name: CODER_A2A_TOKEN
+              valueFrom: { secretKeyRef: { name: another-agentic-orchestrator, key: CODER_A2A_TOKEN } }

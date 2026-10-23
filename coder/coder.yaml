@@ -1,0 +1,83 @@
+# Adam, the coder (adam-coder from the adam image): clones a repository, works on a branch with OpenCode, runs the checks, pushes and opens
+# a pull request. Real model through the gateway; git and GitHub are the stand-ins in mocks.yaml. Workspace is an emptyDir.
+# Env contract: another-agentic-system compose.yaml (`coder`) with compose.live.yaml's model settings.
+apiVersion: v1
+kind: Service
+metadata:
+  name: coder
+spec:
+  selector: { app: coder }
+  ports: [{ name: http, port: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coder
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: { app: coder }
+  template:
+    metadata:
+      labels: { app: coder }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: coder
+          image: ghcr.io/vymalo/another-adam-rs/coder:sha-ddef35e@sha256:14a0e0dfed8f8244b73b46c46043852355a7f5d97ce4ead45f67233eeef86a44
+          imagePullPolicy: IfNotPresent
+          ports: [{ name: http, containerPort: 8080 }]
+          env:
+            - { name: LISTEN_ADDR, value: "0.0.0.0:8080" }
+            - { name: PUBLIC_URL, value: "http://coder.another-dev.svc:8080/" }
+            - { name: MODEL_BASE_URL, value: "https://api.ai.camer.digital/v1" }
+            - { name: MODEL, value: "adorsys-coder" }
+            - { name: OPENCODE_MODEL, value: "adorsys-coder" }
+            - { name: MODEL_CONTEXT_WINDOW, value: "131072" }
+            - { name: GITHUB_API_URL, value: "http://mock-github:8080" }
+            - { name: GITHUB_MCP_URL, value: "http://mock-github-mcp:8080" }
+            - { name: ALLOWED_REPO_HOSTS, value: "git-server" }
+            - { name: ALLOW_LOCAL_REPOS, value: "true" }
+            - { name: CREATE_REPO_OWNERS, value: "scratch" }
+            - { name: WORKSPACE_ROOT, value: /work }
+            - { name: ADAM_AGENT_DIR, value: /etc/adam/agent }
+            - { name: MCP_ALLOW_INSECURE, value: "true" }
+            - name: DATABASE_URL
+              valueFrom: { secretKeyRef: { name: another-agentic-coder, key: DATABASE_URL } }
+            - name: MODEL_API_KEY
+              valueFrom: { secretKeyRef: { name: another-agentic-coder, key: MODEL_API_KEY } }
+            - name: A2A_BEARER_TOKENS
+              valueFrom: { secretKeyRef: { name: another-agentic-coder, key: A2A_BEARER_TOKENS } }
+            - name: GITHUB_TOKEN
+              valueFrom: { secretKeyRef: { name: another-agentic-coder, key: GITHUB_TOKEN } }
+          startupProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 5
+          resources:
+            limits: { memory: 1536Mi }
+            requests: { cpu: 100m, memory: 256Mi }
+          volumeMounts:
+            - { name: work, mountPath: /work }
+            - { name: tmp, mountPath: /tmp }
+            - { name: agent, mountPath: /etc/adam/agent, readOnly: true }
+      volumes:
+        - { name: work, emptyDir: { sizeLimit: 3Gi } }
+        - { name: tmp, emptyDir: { sizeLimit: 512Mi } }
+        - name: agent
+          configMap:
+            name: coder-agent
+            items:
+              - { key: instructions.md, path: instructions.md }
+              - { key: mcp.json, path: mcp.json }
+              - { key: subagent-explorer.md, path: subagents/explorer.md }
+              - { key: subagent-reviewer.md, path: subagents/reviewer.md }

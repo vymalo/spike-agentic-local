@@ -1,0 +1,76 @@
+# One throwaway Postgres for the orchestrator (database `orchestrator`) and the chat agent (database `agent`). Data is lost with the pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: another-agentic-db-init
+data:
+  10-agent.sql: |
+    CREATE DATABASE agent;
+    CREATE DATABASE coder;
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: another-agentic-db
+spec:
+  selector:
+    app: another-agentic-db
+  ports:
+    - name: pg
+      port: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: another-agentic-db
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: another-agentic-db
+  template:
+    metadata:
+      labels:
+        app: another-agentic-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: orchestrator
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: another-agentic-db-auth
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres"]
+            periodSeconds: 3
+          resources:
+            limits:
+              memory: 384Mi
+            requests:
+              cpu: 50m
+              memory: 128Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: init
+          configMap:
+            name: another-agentic-db-init

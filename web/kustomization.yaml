@@ -1,0 +1,21 @@
+# The browser variant: base stack (../) + mock issuer, oauth2-proxy, edge, web, and the orchestrator trusting the mock issuer.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: another-dev
+resources:
+  - ../base
+  - mock-oidc.yaml
+  - oauth2-proxy.yaml
+  - edge.yaml
+  - web.yaml
+patches:
+  - path: patch-orchestrator-config.yaml
+configMapGenerator:
+  - name: another-agentic-edge-caddyfile
+    files:
+      - Caddyfile
+  - name: mock-oidc-users
+    files:
+      - users.json
+generatorOptions:
+  disableNameSuffixHash: true

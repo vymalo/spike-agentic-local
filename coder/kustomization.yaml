@@ -1,0 +1,31 @@
+# Adds the coder to the browser variant: ../web + git-server, mock GitHub, mock GitHub MCP, Adam, and Adam in the orchestrator's agents.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: another-dev
+resources:
+  - ../web
+  - mocks.yaml
+  - coder.yaml
+patches:
+  - path: patch-orchestrator-agents.yaml
+configMapGenerator:
+  - name: coder-agent
+    files:
+      - instructions.md=agent/instructions.md
+      - mcp.json=agent/mcp.json
+      - subagent-explorer.md=agent/subagents/explorer.md
+      - subagent-reviewer.md=agent/subagents/reviewer.md
+  - name: mock-github-mappings
+    files:
+      - wiremock/mock-github/mappings/app.json
+      - wiremock/mock-github/mappings/pulls.json
+      - wiremock/mock-github/mappings/repos.json
+  - name: mock-github-files
+    files:
+      - wiremock/mock-github/files/pull-created.json
+      - wiremock/mock-github/files/pull-list-existing.json
+  - name: mock-github-mcp-mappings
+    files:
+      - wiremock/mock-github-mcp/mappings/mcp.json
+generatorOptions:
+  disableNameSuffixHash: true

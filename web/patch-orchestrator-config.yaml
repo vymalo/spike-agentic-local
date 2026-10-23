@@ -1,0 +1,51 @@
+# Switches the orchestrator to the mock issuer so the browser can sign in. Apply with: kubectl kustomize web | kubectl apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: another-agentic-orchestrator
+data:
+  config.yaml: |
+    version: 1
+    server:
+      environment: development
+      role: all
+      surfaces:
+        - agui
+        - thread-tools
+      publicUrl: "http://127.0.0.1:8080"
+    log:
+      format: json
+    database:
+      url: { file: /run/secrets/db/uri }
+    agents:
+      file: agents.yaml
+    models:
+      endpoints:
+        default:
+          baseUrl: "https://api.ai.camer.digital/v1"
+          apiKey: { file: /run/secrets/orchestrator/model-api-key }
+          timeoutSecs: 20
+    tasks:
+      title: { endpoint: default, model: "deepseek-v4.1-flash" }
+      description: { endpoint: default, model: "deepseek-v4.1-flash" }
+    ui:
+      showDescriptions: true
+    artifacts:
+      store: fs
+      fs: { root: /var/lib/orchestrator/artifacts }
+    threadTools:
+      url: "http://another-agentic-orchestrator.another-dev.svc:8080"
+      secret: { file: /run/secrets/orchestrator/thread-tools-secret }
+      allowedHosts:
+        - "another-agentic-orchestrator.another-dev.svc:8080"
+        - "another-agentic-orchestrator.another-dev.svc.cluster.local:8080"
+    auth:
+      mode: jwt
+      jwt:
+        issuer: "http://mock-oidc:8080"
+        audiences: [dev-chat]
+        rolesClaim: roles
+      defaultRole: user
+      roles:
+        user:  { permissions: [agent.read, agent.invoke, thread.read, thread.write, thread.delete, artifact.read], scope: own, agents: ["*"] }
+        admin: { permissions: [agent.read, agent.invoke, thread.read, thread.write, thread.delete, artifact.read, admin], scope: own, agents: ["*"] }

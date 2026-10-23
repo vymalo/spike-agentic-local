@@ -1,0 +1,43 @@
+# One origin in front of the stack: Caddy asks oauth2-proxy about every web, /api and /agui request (Caddyfile in this directory).
+apiVersion: v1
+kind: Service
+metadata:
+  name: another-agentic-edge
+spec:
+  selector:
+    app: edge
+  ports:
+    - name: http
+      port: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: another-agentic-edge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: edge
+  template:
+    metadata:
+      labels:
+        app: edge
+    spec:
+      containers:
+        - name: caddy
+          image: caddy:2.11.4-alpine@sha256:6aeddd44c3078b0f9a35206472a11420648a79c184603ef95957d0a20044cb2b
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8080 }
+            periodSeconds: 3
+          resources:
+            limits: { memory: 128Mi }
+            requests: { cpu: 10m, memory: 32Mi }
+          volumeMounts:
+            - { name: caddyfile, mountPath: /etc/caddy/Caddyfile, subPath: Caddyfile, readOnly: true }
+      volumes:
+        - name: caddyfile
+          configMap:
+            name: another-agentic-edge-caddyfile

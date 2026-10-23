@@ -1,0 +1,114 @@
+# Stand-ins for what the coder talks to besides the model: a git remote (smart HTTP, seeded with local/sandbox and local/library, makes
+# `scratch/*` on first use), the GitHub REST subset it uses (WireMock: pulls, create repository) and the GitHub MCP server (WireMock).
+# No real GitHub is touched. Taken from another-agentic-system/dev/coder and compose.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: git-server
+spec:
+  selector: { app: git-server }
+  ports: [{ name: http, port: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: git-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: git-server }
+  template:
+    metadata:
+      labels: { app: git-server }
+    spec:
+      containers:
+        - name: git-server
+          image: another-agentic-system/git-server:dev
+          imagePullPolicy: Never
+          env:
+            - { name: AUTO_CREATE_OWNERS, value: scratch }
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /__repos/, port: 8080 }
+            periodSeconds: 3
+          resources:
+            limits: { memory: 192Mi }
+            requests: { cpu: 10m, memory: 32Mi }
+          volumeMounts:
+            - { name: git-data, mountPath: /srv/git }
+      volumes:
+        - { name: git-data, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-github
+spec:
+  selector: { app: mock-github }
+  ports: [{ name: http, port: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-github
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mock-github }
+  template:
+    metadata:
+      labels: { app: mock-github }
+    spec:
+      containers:
+        - name: wiremock
+          image: wiremock/wiremock:3.13.2
+          args: ["--global-response-templating", "--disable-banner"]
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /__admin/health, port: 8080 }
+            periodSeconds: 3
+          resources:
+            limits: { memory: 384Mi }
+            requests: { cpu: 20m, memory: 128Mi }
+          volumeMounts:
+            - { name: mappings, mountPath: /home/wiremock/mappings, readOnly: true }
+            - { name: files, mountPath: /home/wiremock/__files, readOnly: true }
+      volumes:
+        - { name: mappings, configMap: { name: mock-github-mappings } }
+        - { name: files, configMap: { name: mock-github-files } }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-github-mcp
+spec:
+  selector: { app: mock-github-mcp }
+  ports: [{ name: http, port: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-github-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mock-github-mcp }
+  template:
+    metadata:
+      labels: { app: mock-github-mcp }
+    spec:
+      containers:
+        - name: wiremock
+          image: wiremock/wiremock:3.13.2
+          args: ["--global-response-templating", "--disable-banner"]
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /__admin/health, port: 8080 }
+            periodSeconds: 3
+          resources:
+            limits: { memory: 384Mi }
+            requests: { cpu: 20m, memory: 128Mi }
+          volumeMounts:
+            - { name: mappings, mountPath: /home/wiremock/mappings, readOnly: true }
+      volumes:
+        - { name: mappings, configMap: { name: mock-github-mcp-mappings } }
